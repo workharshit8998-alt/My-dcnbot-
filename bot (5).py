@@ -730,11 +730,54 @@ async def results(interaction, player: discord.Member, ign: str, gamemode: app_c
             await asyncio.sleep(2) 
             external_db.table("players").upsert({"username": ign, "region": region.value, db_field: assigned_tier.value}, on_conflict="username").execute()
 
-        m_key = gamemode.value; icon = EMOJI_REGISTRY.get(m_key, "")
-        strip = [r for r in player.roles if m_key in r.name and any(t in r.name for t in TIERS)]
-        if strip: await player.remove_roles(*strip)
-        nr = discord.utils.get(interaction.guild.roles, name=f"{icon} {m_key} {assigned_tier.value}")
-        if nr: await player.add_roles(nr)
+        m_key = gamemode.value
+        icon = EMOJI_REGISTRY.get(m_key, "")
+        target_tier = assigned_tier.value.strip().upper()
+
+        # Match role names without depending on emoji or exact capitalization.
+        mode_aliases = {
+            "CRYSTAL": ("CRYSTAL", "VANILLA"),
+            "SMP": ("SMP",),
+        }
+        mode_terms = mode_aliases.get(m_key.upper(), (m_key.upper(),))
+
+        nr = discord.utils.get(
+            interaction.guild.roles,
+            name=f"{icon} {m_key} {assigned_tier.value}"
+        )
+        if nr is None:
+            for role in interaction.guild.roles:
+                role_name = role.name.upper()
+                has_mode = any(term in role_name for term in mode_terms)
+                has_tier = target_tier in role_name.split()
+                if has_mode and has_tier:
+                    nr = role
+                    break
+
+        if nr is None:
+            logger.error(
+                "TIER ROLE NOT FOUND: expected role like '%s %s %s' in guild %s",
+                icon, m_key, target_tier, interaction.guild.id
+            )
+            await interaction.followup.send(
+                f"⚠️ Database updated, but I couldn't find the Discord role for "
+                f"**{m_key} {target_tier}**. Check the role name and bot role hierarchy.",
+                ephemeral=True
+            )
+        else:
+            # Remove previous tier roles for this mode only, then assign the selected tier.
+            old_roles = []
+            for role in player.roles:
+                role_name = role.name.upper()
+                has_mode = any(term in role_name for term in mode_terms)
+                has_any_tier = any(tier in role_name.split() for tier in TIERS)
+                if role.id != nr.id and has_mode and has_any_tier:
+                    old_roles.append(role)
+
+            if old_roles:
+                await player.remove_roles(*old_roles, reason=f"Tier changed to {m_key} {target_tier}")
+            if nr not in player.roles:
+                await player.add_roles(nr, reason=f"Tier assigned by /results: {m_key} {target_tier}")
 
         tester_id = interaction.user.id
         TESTER_COUNTS[tester_id] = TESTER_COUNTS.get(tester_id, 0) + 1
