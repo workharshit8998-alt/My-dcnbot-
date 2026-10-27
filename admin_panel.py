@@ -33,6 +33,22 @@ def _command_key(command):
     return getattr(command, "qualified_name", getattr(command, "name", "unknown"))
 
 
+def _all_commands(bot):
+    found = []
+    def walk(items):
+        for item in items:
+            found.append(item)
+            children = getattr(item, "commands", None)
+            if children:
+                walk(children)
+    walk(bot.tree.get_commands())
+    # Use qualified names, which uniquely identify subcommands.
+    unique = {}
+    for item in found:
+        unique[_command_key(item)] = item
+    return sorted(unique.values(), key=_command_key)
+
+
 class CommandRoleSelect(RoleSelect):
     def __init__(self, panel):
         super().__init__(placeholder="Choose roles allowed to use this command", min_values=0, max_values=25)
@@ -81,7 +97,7 @@ class AdminPanelView(View):
         self.guild = guild
         self.config = _load_config()
         self.selected = selected
-        commands_list = sorted(bot.tree.get_commands(), key=_command_key)
+        commands_list = _all_commands(bot)
         self.add_item(CommandSelect(self, commands_list))
         if selected and selected != "__none__":
             self.add_item(CommandRoleSelect(self))
@@ -94,7 +110,7 @@ class AdminPanelView(View):
             description="Manage slash-command access. Changes are saved to the bot's local config.",
             color=NEON
         )
-        commands_list = sorted(self.bot.tree.get_commands(), key=_command_key)
+        commands_list = _all_commands(self.bot)
         shown = commands_list[:20]
         lines = []
         for cmd in shown:
