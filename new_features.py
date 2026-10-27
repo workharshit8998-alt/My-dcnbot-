@@ -11,7 +11,7 @@ from discord.ext import commands
 from discord.ui import View, Button
 from supabase import create_client
 
-from __main__ import internal_db, external_db, ALPHA_URL
+from __main__ import internal_db, external_db, ALPHA_URL, has_admin_access, BOT_OWNER_ID
 
 log = logging.getLogger("TriggerMc.Features")
 SERVICE_KEY = os.getenv("ALPHA_SERVICE_KEY", "").strip()
@@ -219,7 +219,7 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Player comparison failed. Check the existing players table and permissions.", ephemeral=True)
 
     @app_commands.command(name="support_setup", description="Post the separate neon support-ticket panel.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     async def support_setup(self, interaction: discord.Interaction):
         if not interaction.channel or not interaction.guild:
             return await interaction.response.send_message("Use this in a server channel.", ephemeral=True)
@@ -230,7 +230,7 @@ class CompetitiveFeatures(commands.Cog):
         await interaction.response.send_message("Support panel posted.", ephemeral=True)
 
     @app_commands.command(name="giveaway_create", description="Create a persistent giveaway (manual ending).")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     @app_commands.describe(prize="Prize being given away", duration_minutes="Entry window in minutes", winners="Number of winners")
     async def giveaway_create(self, interaction: discord.Interaction, prize: str, duration_minutes: app_commands.Range[int, 1, 10080], winners: app_commands.Range[int, 1, 20] = 1):
         if not interaction.guild or not interaction.channel:
@@ -252,7 +252,7 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Giveaway creation failed. Check SQL setup and bot permissions.", ephemeral=True)
 
     @app_commands.command(name="giveaway_end", description="Manually end a giveaway and draw winners.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     @app_commands.describe(giveaway_id="ID shown in the giveaway embed footer")
     async def giveaway_end(self, interaction: discord.Interaction, giveaway_id: str):
         if not interaction.guild:
@@ -288,7 +288,7 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Could not end giveaway. Verify its ID and database setup.", ephemeral=True)
 
     @app_commands.command(name="tournament_create", description="Create a manual competitive tournament signup.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     @app_commands.describe(name="Tournament name", gamemode="Competitive gamemode", capacity="Maximum number of players")
     @app_commands.choices(gamemode=[app_commands.Choice(name=m, value=m) for m in MODES])
     async def tournament_create(self, interaction: discord.Interaction, name: str, gamemode: app_commands.Choice[str], capacity: app_commands.Range[int, 2, 256] = 64):
@@ -330,7 +330,7 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Could not load tournaments. Check database setup.", ephemeral=True)
 
     @app_commands.command(name="tournament_close", description="Close tournament registration manually.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     @app_commands.describe(tournament_id="ID shown in the tournament embed footer")
     async def tournament_close(self, interaction: discord.Interaction, tournament_id: str):
         if not interaction.guild:
@@ -359,8 +359,49 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Could not close tournament. Check its ID and database setup.", ephemeral=True)
 
 
+    @app_commands.command(name="admin_access_grant", description="Owner only: grant someone admin-panel access.")
+    @app_commands.describe(member="Discord member to authorize")
+    async def admin_access_grant(self, interaction: discord.Interaction, member: discord.Member):
+        if interaction.user.id != BOT_OWNER_ID:
+            return await interaction.response.send_message("⛔ Only the bot owner can grant admin-panel access.", ephemeral=True)
+        if not FEATURE_DB_READY:
+            return await interaction.response.send_message("Access control needs ALPHA_SERVICE_KEY configured privately in Wispbyte and the SQL schema applied.", ephemeral=True)
+        try:
+            feature_db.table("authorized_admins").upsert({"guild_id": str(interaction.guild_id), "user_id": str(member.id), "granted_by": str(interaction.user.id)}, on_conflict="guild_id,user_id").execute()
+            await interaction.response.send_message(f"✅ {member.mention} can now use the admin panel in this server. Only you can grant or revoke access.", ephemeral=True)
+        except Exception:
+            log.exception("Admin access grant failed")
+            await interaction.response.send_message("Could not save access. Check the SQL schema and service key.", ephemeral=True)
+
+    @app_commands.command(name="admin_access_revoke", description="Owner only: revoke admin-panel access.")
+    @app_commands.describe(member="Discord member to remove")
+    async def admin_access_revoke(self, interaction: discord.Interaction, member: discord.Member):
+        if interaction.user.id != BOT_OWNER_ID:
+            return await interaction.response.send_message("⛔ Only the bot owner can revoke admin-panel access.", ephemeral=True)
+        if not FEATURE_DB_READY:
+            return await interaction.response.send_message("Access control needs ALPHA_SERVICE_KEY configured privately in Wispbyte and the SQL schema applied.", ephemeral=True)
+        try:
+            feature_db.table("authorized_admins").delete().eq("guild_id", str(interaction.guild_id)).eq("user_id", str(member.id)).execute()
+            await interaction.response.send_message(f"🔒 Revoked admin-panel access for {member.mention} in this server.", ephemeral=True)
+        except Exception:
+            log.exception("Admin access revoke failed")
+            await interaction.response.send_message("Could not revoke access. Check the SQL schema and service key.", ephemeral=True)
+
+    @app_commands.command(name="admin_access_list", description="Owner only: list people authorized for the admin panel.")
+    async def admin_access_list(self, interaction: discord.Interaction):
+        if interaction.user.id != BOT_OWNER_ID:
+            return await interaction.response.send_message("⛔ Only the bot owner can view the access list.", ephemeral=True)
+        if not FEATURE_DB_READY:
+            return await interaction.response.send_message("Access control needs ALPHA_SERVICE_KEY configured privately in Wispbyte and the SQL schema applied.", ephemeral=True)
+        try:
+            rows = feature_db.table("authorized_admins").select("user_id").eq("guild_id", str(interaction.guild_id)).execute().data or []
+            description = "\n".join(["• <@" + str(row["user_id"]) + "> (`" + str(row["user_id"]) + "`) " for row in rows]) or "No delegated admins. Only the owner has access."
+            await interaction.response.send_message(embed=discord.Embed(title="🔐 Admin Panel Access", description=description, color=NEON), ephemeral=True)
+        except Exception:
+            log.exception("Admin access list failed")
+            await interaction.response.send_message("Could not load access list. Check the SQL schema and service key.", ephemeral=True)
     @app_commands.command(name="feature_status", description="Admin: inspect the new feature systems.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_admin_access)
     async def feature_status(self, interaction: discord.Interaction):
         if not FEATURE_DB_READY:
             return await interaction.response.send_message(
