@@ -132,6 +132,26 @@ except Exception as e:
     logger.critical(f"DATABASE_FATAL: {e}")
     sys.exit(1)
 
+# Owner-controlled admin panel access. Owner ID is the bot owner supplied by the project owner.
+BOT_OWNER_ID = 1326234591979376771
+_acl_key = os.getenv("ALPHA_SERVICE_KEY", "").strip()
+_acl_db = create_client(ALPHA_URL, _acl_key) if _acl_key else None
+
+async def has_admin_access(interaction: discord.Interaction) -> bool:
+    if interaction.user.id == BOT_OWNER_ID:
+        return True
+    if not interaction.guild or _acl_db is None:
+        return False
+    try:
+        rows = (_acl_db.table("authorized_admins").select("user_id")
+                .eq("guild_id", str(interaction.guild.id))
+                .eq("user_id", str(interaction.user.id))
+                .limit(1).execute().data)
+        return bool(rows)
+    except Exception as exc:
+        logger.error("Admin ACL lookup failed closed: %s", exc)
+        return False
+
 def add_vouch_to_db(tester_id: int):
     try:
         res = internal_db.table("tester_vouches").select("vouch_count").eq("user_id", str(tester_id)).execute()
@@ -190,6 +210,7 @@ class TriggerSovereignBot(commands.Bot):
     async def setup_hook(self):
         self.add_view(PersistentPortal())
         self.add_view(CommunityEventNode())
+        await self.load_extension("new_features")
     async def on_ready(self):
         global TESTER_COUNTS
         try:
@@ -215,7 +236,7 @@ class EditIgnModal(Modal, title="Update Player IGN"):
         self.current_ign = current_ign
 
     async def on_submit(self, i: discord.Interaction):
-        if i.user.id != i.guild.owner_id:
+        if not await has_admin_access(i):
             return await i.response.send_message("❌ Error: Owner access needed.", ephemeral=True)
         await i.response.defer(ephemeral=True)
         try:
@@ -233,7 +254,7 @@ class EditRegionModal(Modal, title="Modify Network Region"):
         self.ign = ign
 
     async def on_submit(self, i: discord.Interaction):
-        if i.user.id != i.guild.owner_id:
+        if not await has_admin_access(i):
             return await i.response.send_message("❌ Error: Owner access needed.", ephemeral=True)
         await i.response.defer(ephemeral=True)
         target_region = self.region.value.strip().upper()
@@ -287,7 +308,7 @@ class AdminFeatureDropdown(discord.ui.Select):
         super().__init__(placeholder="Select configuration pipeline...", options=options, custom_id="v43_admin_drop")
 
     async def callback(self, i: discord.Interaction):
-        if i.user.id != i.guild.owner_id:
+        if not await has_admin_access(i):
             return await i.response.send_message("❌ Access Denied: Server Owner clearance required.", ephemeral=True)
         
         selection = self.values[0]
@@ -323,7 +344,7 @@ class AdminTerminalView(View):
 
     @discord.ui.button(label="Refresh Node", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
     async def refresh_btn(self, i: discord.Interaction, b: Button):
-        if i.user.id != i.guild.owner_id:
+        if not await has_admin_access(i):
             return await i.response.send_message("❌ Access Denied.", ephemeral=True)
         await i.response.defer(ephemeral=True)
         try:
@@ -360,7 +381,7 @@ class AdminTerminalView(View):
 
     @discord.ui.button(label="Purge Records", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def remove_btn(self, i: discord.Interaction, b: Button):
-        if i.user.id != i.guild.owner_id:
+        if not await has_admin_access(i):
             return await i.response.send_message("❌ Access Denied: Server Owner required.", ephemeral=True)
         await i.response.defer(ephemeral=True)
         try:
@@ -666,7 +687,7 @@ async def slash_leaderboard(interaction: discord.Interaction, target: app_comman
 @bot.tree.command(name="data", description="🔒 LIVE OPERATIONAL DATA MANAGEMENT TERMINAL NODE.")
 @app_commands.describe(ign="Target Minecraft IGN username profile to query.")
 async def data_terminal(interaction: discord.Interaction, ign: str):
-    if interaction.user.id != interaction.guild.owner_id:
+    if not await has_admin_access(interaction):
         return await interaction.response.send_message("❌ Error: Server Owner clearance required.", ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
