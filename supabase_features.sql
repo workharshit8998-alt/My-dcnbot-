@@ -3,6 +3,15 @@
 -- Keep ALPHA_SERVICE_KEY only in Wispbyte private environment variables.
 create extension if not exists pgcrypto;
 
+create table if not exists public.authorized_admins (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  user_id text not null,
+  granted_by text not null,
+  created_at timestamptz not null default now(),
+  unique (guild_id, user_id)
+);
+
 create table if not exists public.giveaways (
   id uuid primary key default gen_random_uuid(),
   guild_id text not null, channel_id text not null, message_id text not null,
@@ -37,18 +46,20 @@ create table if not exists public.tournament_entries (
   unique (tournament_id, user_id)
 );
 
+alter table public.authorized_admins enable row level security;
 alter table public.giveaways enable row level security;
 alter table public.giveaway_entries enable row level security;
 alter table public.support_tickets enable row level security;
 alter table public.tournaments enable row level security;
 alter table public.tournament_entries enable row level security;
 
-revoke all on public.giveaways, public.giveaway_entries, public.support_tickets,
+revoke all on public.authorized_admins, public.giveaways, public.giveaway_entries, public.support_tickets,
   public.tournaments, public.tournament_entries from anon, authenticated;
-grant all on public.giveaways, public.giveaway_entries, public.support_tickets,
+grant all on public.authorized_admins, public.giveaways, public.giveaway_entries, public.support_tickets,
   public.tournaments, public.tournament_entries to service_role;
 grant usage, select on all sequences in schema public to service_role;
 
+create index if not exists idx_authorized_admins_guild_user on public.authorized_admins (guild_id, user_id);
 create index if not exists idx_giveaways_guild_active on public.giveaways (guild_id, is_ended);
 create index if not exists idx_giveaway_entries_giveaway on public.giveaway_entries (giveaway_id);
 create index if not exists idx_support_tickets_channel_status on public.support_tickets (channel_id, status);
