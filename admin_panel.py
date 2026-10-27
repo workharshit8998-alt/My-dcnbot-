@@ -133,13 +133,13 @@ class BulkCategoryButton(Button):
         await self.panel.refresh(interaction, f'Updated {len(cmds)} commands in {category}.')
 
 class AdminPanelView(View):
-    def __init__(self, bot, guild, selected=None):
+    def __init__(self, bot, guild, selected=None, selected_category=None):
         super().__init__(timeout=300)
         self.bot = bot
         self.guild = guild
         self.config = _load_config()
         self.selected = selected
-        self.selected_category = None
+        self.selected_category = selected_category
         commands_list = _all_commands(bot)
         self.add_item(CommandSelect(self, commands_list))
         self.add_item(CategorySelect(self))
@@ -190,7 +190,7 @@ class AdminPanelView(View):
 
     async def refresh(self, interaction, notice=None):
         self.config = _load_config()
-        new_view = AdminPanelView(self.bot, self.guild, self.selected)
+        new_view = AdminPanelView(self.bot, self.guild, self.selected, self.selected_category)
         if interaction.response.is_done():
             await interaction.edit_original_response(embed=new_view.build_embed(notice), view=new_view)
         else:
