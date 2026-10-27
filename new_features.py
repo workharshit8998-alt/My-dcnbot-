@@ -359,6 +359,34 @@ class CompetitiveFeatures(commands.Cog):
             await interaction.followup.send("Could not close tournament. Check its ID and database setup.", ephemeral=True)
 
 
+    @app_commands.command(name="feature_status", description="Admin: inspect the new feature systems.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def feature_status(self, interaction: discord.Interaction):
+        if not FEATURE_DB_READY:
+            return await interaction.response.send_message(
+                "Persistent features: NOT CONFIGURED. Apply supabase_features.sql and set ALPHA_SERVICE_KEY privately in Wispbyte.",
+                ephemeral=True
+            )
+        await interaction.response.defer(ephemeral=True)
+        try:
+            giveaways = feature_db.table("giveaways").select("id", count="exact").eq("guild_id", str(interaction.guild_id)).eq("is_ended", False).execute()
+            tickets = feature_db.table("support_tickets").select("id", count="exact").eq("guild_id", str(interaction.guild_id)).eq("status", "open").execute()
+            tournaments = feature_db.table("tournaments").select("id", count="exact").eq("guild_id", str(interaction.guild_id)).eq("status", "open").execute()
+            embed = discord.Embed(title="🛠️ TriggerMc Feature Status", color=NEON)
+            embed.add_field(name="Persistent DB", value="Connected", inline=False)
+            embed.add_field(name="Open giveaways", value=str(giveaways.count if giveaways.count is not None else len(giveaways.data or [])), inline=True)
+            embed.add_field(name="Open support tickets", value=str(tickets.count if tickets.count is not None else len(tickets.data or [])), inline=True)
+            embed.add_field(name="Open tournaments", value=str(tournaments.count if tournaments.count is not None else len(tournaments.data or [])), inline=True)
+            embed.set_footer(text="Existing /results pipeline is separate and unchanged.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception:
+            log.exception("Feature status query failed")
+            await interaction.followup.send(
+                "Feature database check failed. Confirm the SQL schema and ALPHA_SERVICE_KEY permissions.",
+                ephemeral=True
+            )
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(CompetitiveFeatures(bot))
     # Re-register stable custom IDs after restarts.
