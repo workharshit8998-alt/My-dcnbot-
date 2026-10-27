@@ -190,6 +190,7 @@ class TriggerSovereignBot(commands.Bot):
     async def setup_hook(self):
         self.add_view(PersistentPortal())
         self.add_view(CommunityEventNode())
+        await self.load_extension("new_features")
     async def on_ready(self):
         global TESTER_COUNTS
         try:
