@@ -206,13 +206,33 @@ class CompetitiveFeatures(commands.Cog):
                 if not rows:
                     return await interaction.followup.send("No player record found for " + name + ".", ephemeral=True)
                 found.append(rows[0])
-            embed = discord.Embed(title="⚔️ Player Comparison", color=NEON, description="**" + str(found[0].get("username", names[0])) + "**  VS  **" + str(found[1].get("username", names[1])) + "**")
-            embed.add_field(name="🌍 Regions", value=str(found[0].get("region") or "N/A") + "  VS  " + str(found[1].get("region") or "N/A"), inline=False)
+            username_one = str(found[0].get("username") or names[0])
+            username_two = str(found[1].get("username") or names[1])
+            embed = discord.Embed(
+                title="⚔️ Player Comparison",
+                color=NEON,
+                description=f"**{username_one}**  🆚  **{username_two}**"
+            )
+            region_one = str(found[0].get("region") or "Not set")
+            region_two = str(found[1].get("region") or "Not set")
+            embed.add_field(
+                name="🌍 Regions",
+                value=f"**{username_one}:** {region_one}  •  **{username_two}:** {region_two}",
+                inline=False
+            )
+            mode_emojis = {
+                "Sword": "⚔️", "Nethpot": "🧪", "Axe": "🪓", "Mace": "🔨",
+                "Pot": "🧪", "UHC": "❤️", "SMP": "🌿", "Crystal": "💎"
+            }
             for mode, field in PLAYER_FIELDS.items():
-                embed.add_field(name=mode, value="**" + str(found[0].get(field) or "Unranked") + "**", inline=True)
-                embed.add_field(name=mode + " ", value="**" + str(found[1].get(field) or "Unranked") + "**", inline=True)
-                embed.add_field(name="VS", value="⚡", inline=True)
-            embed.set_footer(text="Existing BETA players table • Crystal uses the vanilla column")
+                tier_one = str(found[0].get(field) or "Unranked")
+                tier_two = str(found[1].get(field) or "Unranked")
+                embed.add_field(
+                    name=f"{mode_emojis.get(mode, '🎮')} {mode}",
+                    value=f"**{username_one}:** {tier_one}  •  **{username_two}:** {tier_two}",
+                    inline=False
+                )
+            embed.set_footer(text="Player tiers • Crystal uses the vanilla column")
             await interaction.followup.send(embed=embed)
         except Exception:
             log.exception("Player comparison failed")
