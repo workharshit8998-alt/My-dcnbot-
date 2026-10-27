@@ -90,6 +90,48 @@ class CommandSelect(Select):
         await self.panel.refresh(interaction)
 
 
+
+def _command_category(command):
+    name = _command_key(command).lower()
+    if any(word in name for word in ('giveaway', 'raffle', 'gaw')): return 'Giveaways'
+    if any(word in name for word in ('admin', 'owner', 'staff', 'config', 'permission', 'panel')): return 'Admin'
+    if any(word in name for word in ('player', 'compare', 'profile', 'tier', 'rank', 'region', 'leaderboard', 'vouch', 'test')): return 'Players & Testing'
+    return 'Other'
+
+class CategorySelect(Select):
+    def __init__(self, panel):
+        cats = sorted({_command_category(cmd) for cmd in _all_commands(panel.bot)})
+        opts = [discord.SelectOption(label=x, value=x) for x in cats[:25]] or [discord.SelectOption(label='Other', value='Other')]
+        super().__init__(placeholder='Choose a command category', min_values=1, max_values=1, options=opts, row=1)
+        self.panel = panel
+    async def callback(self, interaction):
+        if not await has_admin_access(interaction):
+            await interaction.response.send_message('Not authorized.', ephemeral=True); return
+        self.panel.selected_category = self.values[0]
+        await self.panel.refresh(interaction, 'Category selected. Bulk actions apply to every command in this category.')
+
+class BulkCategoryButton(Button):
+    def __init__(self, panel, action):
+        labels = {'enable': 'Enable category', 'disable': 'Disable category', 'everyone': 'Allow everyone in category'}
+        super().__init__(label=labels[action], style=discord.ButtonStyle.secondary, row=4)
+        self.panel, self.action = panel, action
+    async def callback(self, interaction):
+        if not await has_admin_access(interaction):
+            await interaction.response.send_message('Not authorized.', ephemeral=True); return
+        category = self.panel.selected_category
+        if not category:
+            await interaction.response.send_message('Choose a category first.', ephemeral=True); return
+        cmds = [x for x in _all_commands(self.panel.bot) if _command_category(x) == category]
+        for cmd in cmds:
+            settings = self.panel.config.setdefault(_command_key(cmd), {})
+            if self.action == 'enable': settings['enabled'] = True
+            elif self.action == 'disable': settings['enabled'] = False
+            else: settings['roles'] = []
+        try: _save_config(self.panel.config)
+        except OSError as exc:
+            await interaction.response.send_message(f'Could not save: {exc}', ephemeral=True); return
+        await self.panel.refresh(interaction, f'Updated {len(cmds)} commands in {category}.')
+
 class AdminPanelView(View):
     def __init__(self, bot, guild, selected=None):
         super().__init__(timeout=300)
@@ -97,12 +139,17 @@ class AdminPanelView(View):
         self.guild = guild
         self.config = _load_config()
         self.selected = selected
+        self.selected_category = None
         commands_list = _all_commands(bot)
         self.add_item(CommandSelect(self, commands_list))
+        self.add_item(CategorySelect(self))
         if selected and selected != "__none__":
             self.add_item(CommandRoleSelect(self))
         self.add_item(ToggleCommandButton(self))
         self.add_item(RefreshPanelButton(self))
+        self.add_item(BulkCategoryButton(self, 'enable'))
+        self.add_item(BulkCategoryButton(self, 'disable'))
+        self.add_item(BulkCategoryButton(self, 'everyone'))
 
     def build_embed(self, notice=None):
         embed = discord.Embed(
@@ -111,7 +158,10 @@ class AdminPanelView(View):
             color=NEON
         )
         commands_list = _all_commands(self.bot)
-        shown = commands_list[:20]
+        if self.selected_category:
+            count = sum(1 for cmd in commands_list if _command_category(cmd) == self.selected_category)
+            embed.add_field(name='Selected category: ' + self.selected_category, value=f'{count} commands; bulk buttons apply to all of them.', inline=False)
+        shown = commands_list[:12]
         lines = []
         for cmd in shown:
             key = _command_key(cmd)
@@ -131,7 +181,7 @@ class AdminPanelView(View):
                 inline=False
             )
         if len(commands_list) > 20:
-            embed.set_footer(text=f"Showing first 20 of {len(commands_list)} commands. Use the selector to choose from up to 25.")
+            embed.set_footer(text=f"Showing first 12 of {len(commands_list)} commands. Use selectors to manage commands and categories.")
         else:
             embed.set_footer(text="Only the bot owner / authorized admins can change these settings.")
         if notice:
