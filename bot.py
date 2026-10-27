@@ -211,6 +211,7 @@ class TriggerSovereignBot(commands.Bot):
         self.add_view(PersistentPortal())
         self.add_view(CommunityEventNode())
         await self.load_extension("new_features")
+        await self.load_extension("admin_panel")
     async def on_ready(self):
         global TESTER_COUNTS
         try:
