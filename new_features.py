@@ -190,12 +190,6 @@ class CompetitiveFeatures(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def cog_load(self):
-        self.bot.add_view(SupportPanelView())
-        self.bot.add_view(SupportCloseView())
-        self.bot.add_view(GiveawayJoinView())
-        self.bot.add_view(TournamentJoinView())
-
     @app_commands.command(name="compare", description="Compare two Minecraft players' recorded tiers.")
     @app_commands.describe(player_one="First Minecraft username", player_two="Second Minecraft username")
     async def compare(self, interaction: discord.Interaction, player_one: str, player_two: str):
@@ -213,9 +207,7 @@ class CompetitiveFeatures(commands.Cog):
                     return await interaction.followup.send("No player record found for " + name + ".", ephemeral=True)
                 found.append(rows[0])
             embed = discord.Embed(title="⚔️ Player Comparison", color=NEON, description="**" + str(found[0].get("username", names[0])) + "**  VS  **" + str(found[1].get("username", names[1])) + "**")
-            embed.add_field(name="🌍 Region", value=str(found[0].get("region") or "N/A"), inline=True)
-            embed.add_field(name="🌍 Region", value=str(found[1].get("region") or "N/A"), inline=True)
-            embed.add_field(name=" ", value=" ", inline=True)
+            embed.add_field(name="🌍 Regions", value=str(found[0].get("region") or "N/A") + "  VS  " + str(found[1].get("region") or "N/A"), inline=False)
             for mode, field in PLAYER_FIELDS.items():
                 embed.add_field(name=mode, value="**" + str(found[0].get(field) or "Unranked") + "**", inline=True)
                 embed.add_field(name=mode + " ", value="**" + str(found[1].get(field) or "Unranked") + "**", inline=True)
